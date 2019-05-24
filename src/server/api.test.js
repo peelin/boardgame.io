@@ -9,7 +9,7 @@
 import request from 'supertest';
 
 import { addApiToServer, createApiServer } from './api';
-import Game from '../core/game';
+import { Game } from '../core/game';
 
 jest.setTimeout(2000000000);
 
@@ -27,7 +27,7 @@ describe('.createApiServer', () => {
         set: async (id, state) => setSpy(id, state),
       };
       games = [
-        Game({
+        {
           name: 'foo',
           setup: (ctx, setupData) =>
             setupData
@@ -35,7 +35,7 @@ describe('.createApiServer', () => {
                   colors: setupData.colors,
                 }
               : {},
-        }),
+        },
       ];
     });
 
@@ -581,7 +581,7 @@ describe('.createApiServer', () => {
       beforeEach(async () => {
         let app;
         let games;
-        games = [Game({ name: 'foo' }), Game({ name: 'bar' })];
+        games = [Game({ name: 'foo' }), { name: 'bar' }];
         app = createApiServer({ db, games });
 
         response = await request(app.callback()).get('/games');
@@ -629,7 +629,7 @@ describe('.createApiServer', () => {
       let response;
       let rooms;
       beforeEach(async () => {
-        let games = [Game({ name: 'foo' }), Game({ name: 'bar' })];
+        let games = [Game({ name: 'foo' }), { name: 'bar' }];
         let app = createApiServer({ db, games });
         response = await request(app.callback()).get('/games/bar');
         rooms = JSON.parse(response.text).rooms;
@@ -688,7 +688,7 @@ describe('.createApiServer', () => {
       let response;
       let room;
       beforeEach(async () => {
-        let games = [Game({ name: 'foo' }), Game({ name: 'bar' })];
+        let games = [Game({ name: 'foo' }), { name: 'bar' }];
         let app = createApiServer({ db, games });
         response = await request(app.callback()).get('/games/bar/bar-0');
         room = JSON.parse(response.text);
@@ -737,10 +737,10 @@ describe('.addApiToServer', () => {
         set: async (id, state) => setSpy(id, state),
       };
       games = [
-        Game({
+        {
           name: 'foo',
           setup: () => {},
-        }),
+        },
       ];
     });
 
