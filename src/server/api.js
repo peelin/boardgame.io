@@ -147,11 +147,7 @@ export const addApiToServer = ({ app, db, games, lobbyConfig }) => {
   });
 
   router.post('/games/:name/:id/join', koaBody(), async ctx => {
-    const playerID = ctx.request.body.playerID;
     const playerName = ctx.request.body.playerName;
-    if (typeof playerID === 'undefined') {
-      ctx.throw(403, 'playerID is required');
-    }
     if (!playerName) {
       ctx.throw(403, 'playerName is required');
     }
@@ -159,24 +155,38 @@ export const addApiToServer = ({ app, db, games, lobbyConfig }) => {
     const roomID = ctx.params.id;
     const namespacedGameID = getNamespacedGameID(roomID, gameName);
     const gameMetadata = await db.get(GameMetadataKey(namespacedGameID));
+    const players = gameMetadata.players;
     if (!gameMetadata) {
       ctx.throw(404, 'Game ' + roomID + ' not found');
     }
-    if (!gameMetadata.players[playerID]) {
-      ctx.throw(404, 'Player ' + playerID + ' not found');
-    }
-    if (gameMetadata.players[playerID].name) {
-      ctx.throw(409, 'Player ' + playerID + ' not available');
+
+    // Find an empty slot and join it
+    var playerCredentials = undefined;
+    var playerID = undefined;
+
+    //debug code
+    console.log('Attempting to find slot for player');
+    console.log(players);
+
+    for (let i = 0; i < Object.keys(players).length; i++) {
+      console.log('Checking slot '+i);
+      if (typeof players[i].name === 'undefined') {
+        //Join the game
+        players[i].name = playerName;
+        playerCredentials = players[i].credentials;
+        await db.set(GameMetadataKey(namespacedGameID), gameMetadata);
+        break;
+      }
     }
 
-    gameMetadata.players[playerID].name = playerName;
-    const playerCredentials = gameMetadata.players[playerID].credentials;
-
-    await db.set(GameMetadataKey(namespacedGameID), gameMetadata);
+    if (typeof playerCredentials === 'undefined') {
+      ctx.throw(409, 'Game is full!');
+    }
 
     ctx.body = {
-      playerCredentials,
-    };
+          playerCredentials,
+          playerID
+        };
   });
 
   router.post('/games/:name/:id/leave', koaBody(), async ctx => {
