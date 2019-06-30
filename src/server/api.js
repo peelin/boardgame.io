@@ -49,7 +49,7 @@ export const CreateGame = async (
   });
 
   for (let playerIndex = 0; playerIndex < numPlayers; playerIndex++) {
-    const credentials = lobbyConfig.uuid();
+    const credentials = uuid();
     gameMetadata.players[playerIndex] = { id: playerIndex, credentials };
   }
 
@@ -168,10 +168,12 @@ export const addApiToServer = ({ app, db, games, lobbyConfig }) => {
     console.log('Attempting to find slot for player');
     console.log(players);
 
+    var playerID = undefined;
     for (let i = 0; i < Object.keys(players).length; i++) {
       console.log('Checking slot '+i);
       if (typeof players[i].name === 'undefined') {
         //Join the game
+        playerID = i.toString();
         players[i].name = playerName;
         playerCredentials = players[i].credentials;
         await db.set(GameMetadataKey(namespacedGameID), gameMetadata);
@@ -179,13 +181,22 @@ export const addApiToServer = ({ app, db, games, lobbyConfig }) => {
       }
     }
 
+    // First player becomes host and gets admin powers
+    // (all player credentials)
+    var adminData = undefined;
+    if (playerID === '0') {
+      adminData = gameMetadata;
+    }
+
     if (typeof playerCredentials === 'undefined') {
       ctx.throw(409, 'Game is full!');
     }
 
+
     ctx.body = {
           playerCredentials,
-          playerID
+          playerID,
+          adminData
         };
   });
 
