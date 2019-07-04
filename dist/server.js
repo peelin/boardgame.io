@@ -2228,6 +2228,14 @@ var addApiToServer = function addApiToServer(_ref2) {
         await db.set(GameMetadataKey(namespacedGameID), gameMetadata);
         break;
       }
+    } // First player becomes host and gets admin powers
+    // (all player credentials)
+
+
+    var adminData = undefined;
+
+    if (playerID === '0') {
+      adminData = gameMetadata;
     }
 
     if (typeof playerCredentials === 'undefined') {
@@ -2236,7 +2244,8 @@ var addApiToServer = function addApiToServer(_ref2) {
 
     ctx.body = {
       playerCredentials: playerCredentials,
-      playerID: playerID
+      playerID: playerID,
+      adminData: adminData
     };
   });
   router.post('/games/:name/:id/leave', koaBody(), async function (ctx) {

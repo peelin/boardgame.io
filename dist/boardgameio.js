@@ -3471,7 +3471,7 @@
 
       _this.shortcuts = AssignShortcuts(props.moves, props.events, 'dlit');
       _this.state = {
-        showDebugUI: true,
+        showDebugUI: false,
         showLog: false,
         showGameInfo: props.showGameInfo,
         dockControls: props.dockControls,

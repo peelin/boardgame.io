@@ -79,7 +79,7 @@ export class Debug extends React.Component {
     this.shortcuts = AssignShortcuts(props.moves, props.events, 'dlit');
 
     this.state = {
-      showDebugUI: true,
+      showDebugUI: false,
       showLog: false,
       showGameInfo: props.showGameInfo,
       dockControls: props.dockControls,
