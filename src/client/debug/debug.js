@@ -113,6 +113,8 @@ export class Debug extends React.Component {
   componentWillUnmount() {
     Mousetrap.unbind('d');
     Mousetrap.unbind('l');
+    Mousetrap.unbind('i');
+    Mousetrap.unbind('t');
   }
 
   saveState = () => {
