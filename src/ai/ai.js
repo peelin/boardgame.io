@@ -9,9 +9,9 @@
 import { MCTSBot } from './bot';
 
 export function AI({ bot, enumerate, visualize }) {
-  if (!bot) {
-    bot = MCTSBot;
-  }
+	if (!bot) {
+		bot = MCTSBot;
+	}
 
-  return { bot, enumerate, visualize };
+	return { bot, enumerate, visualize };
 }

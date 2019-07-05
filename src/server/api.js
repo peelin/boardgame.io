@@ -170,7 +170,7 @@ export const addApiToServer = ({ app, db, games, lobbyConfig }) => {
 
     var playerID = undefined;
     for (let i = 0; i < Object.keys(players).length; i++) {
-      console.log('Checking slot '+i);
+      console.log('Checking slot ' + i);
       if (typeof players[i].name === 'undefined') {
         //Join the game
         playerID = i.toString();
@@ -192,12 +192,11 @@ export const addApiToServer = ({ app, db, games, lobbyConfig }) => {
       ctx.throw(409, 'Game is full!');
     }
 
-
     ctx.body = {
-          playerCredentials,
-          playerID,
-          adminData
-        };
+      playerCredentials,
+      playerID,
+      adminData,
+    };
   });
 
   router.post('/games/:name/:id/leave', koaBody(), async ctx => {
