@@ -3526,6 +3526,8 @@ function (_React$Component) {
     value: function componentWillUnmount() {
       Mousetrap.unbind('d');
       Mousetrap.unbind('l');
+      Mousetrap.unbind('i');
+      Mousetrap.unbind('t');
     }
   }, {
     key: "render",
