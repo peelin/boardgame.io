@@ -2037,17 +2037,10 @@ var uuid = require('shortid').generate;
 
 var cors = require('@koa/cors');
 
-var isGameMetadataKey = function isGameMetadataKey(key, gameName) {
-  return key.match(gameName + ':.*:metadata');
-};
-
-var getNamespacedGameID = function getNamespacedGameID(gameID, gameName) {
-  return "".concat(gameName, ":").concat(gameID);
-};
-
-var createGameMetadata = function createGameMetadata() {
+var createGameMetadata = function createGameMetadata(gameName) {
   return {
-    players: {}
+    players: {},
+    gameName: gameName
   };
 };
 
@@ -2067,7 +2060,7 @@ var GameMetadataKey = function GameMetadataKey(gameID) {
 
 
 var CreateGame = async function CreateGame(db, game, numPlayers, setupData, lobbyConfig) {
-  var gameMetadata = createGameMetadata();
+  var gameMetadata = createGameMetadata(game.name);
   var state = InitializeGame({
     game: game,
     numPlayers: numPlayers,
@@ -2083,9 +2076,8 @@ var CreateGame = async function CreateGame(db, game, numPlayers, setupData, lobb
   }
 
   var gameID = lobbyConfig.uuid();
-  var namespacedGameID = getNamespacedGameID(gameID, game.name);
-  await db.set(GameMetadataKey(namespacedGameID), gameMetadata);
-  await db.set(namespacedGameID, state);
+  await db.set(GameMetadataKey(gameID), gameMetadata);
+  await db.set(gameID, state);
   return gameID;
 };
 var createApiServer = function createApiServer(_ref) {
@@ -2142,47 +2134,16 @@ var addApiToServer = function addApiToServer(_ref2) {
       gameID: gameID
     };
   });
-  router.get('/games/:name', async function (ctx) {
-    var gameName = ctx.params.name;
-    var gameList = await db.list();
-    var rooms = [];
-
-    var _arr = _toConsumableArray(gameList);
-
-    for (var _i = 0; _i < _arr.length; _i++) {
-      var key = _arr[_i];
-
-      if (isGameMetadataKey(key, gameName)) {
-        var gameID = key.slice(gameName.length + 1, key.lastIndexOf(':metadata'));
-        var metadata = await db.get(key);
-        rooms.push({
-          gameID: gameID,
-          players: Object.values(metadata.players).map(function (player) {
-            // strip away credentials
-            return {
-              id: player.id,
-              name: player.name
-            };
-          })
-        });
-      }
-    }
-
-    ctx.body = {
-      rooms: rooms
-    };
-  });
-  router.get('/games/:name/:id', async function (ctx) {
-    var gameName = ctx.params.name;
+  router.get('/games/:id', async function (ctx) {
     var gameID = ctx.params.id;
-    var room = await db.get("".concat(gameName, ":").concat(GameMetadataKey(gameID)));
+    var room = await db.get(GameMetadataKey(gameID));
 
     if (!room) {
       ctx.throw(404, 'Room ' + gameID + ' not found');
     }
 
     var strippedRoom = {
-      roomID: gameID,
+      gameID: gameID,
       players: Object.values(room.players).map(function (player) {
         return {
           id: player.id,
@@ -2192,21 +2153,19 @@ var addApiToServer = function addApiToServer(_ref2) {
     };
     ctx.body = strippedRoom;
   });
-  router.post('/games/:name/:id/join', koaBody(), async function (ctx) {
+  router.post('/games/:id/join', koaBody(), async function (ctx) {
     var playerName = ctx.request.body.playerName;
+    var gameID = ctx.params.id;
 
     if (!playerName) {
       ctx.throw(403, 'playerName is required');
     }
 
-    var gameName = ctx.params.name;
-    var roomID = ctx.params.id;
-    var namespacedGameID = getNamespacedGameID(roomID, gameName);
-    var gameMetadata = await db.get(GameMetadataKey(namespacedGameID));
+    var gameMetadata = await db.get(GameMetadataKey(gameID));
     var players = gameMetadata.players;
 
     if (!gameMetadata) {
-      ctx.throw(404, 'Game ' + roomID + ' not found');
+      ctx.throw(404, 'Game ' + gameID + ' not found');
     } // Find an empty slot and join it
 
 
@@ -2225,7 +2184,7 @@ var addApiToServer = function addApiToServer(_ref2) {
         playerID = i.toString();
         players[i].name = playerName;
         playerCredentials = players[i].credentials;
-        await db.set(GameMetadataKey(namespacedGameID), gameMetadata);
+        await db.set(GameMetadataKey(gameID), gameMetadata);
         break;
       }
     } // First player becomes host and gets admin powers
@@ -2243,25 +2202,24 @@ var addApiToServer = function addApiToServer(_ref2) {
     }
 
     ctx.body = {
+      gameName: gameMetadata.gameName,
       playerCredentials: playerCredentials,
       playerID: playerID,
       adminData: adminData
     };
   });
-  router.post('/games/:name/:id/leave', koaBody(), async function (ctx) {
-    var gameName = ctx.params.name;
-    var roomID = ctx.params.id;
+  router.post('/games/:id/leave', koaBody(), async function (ctx) {
+    var gameID = ctx.params.id;
     var playerID = ctx.request.body.playerID;
     var credentials = ctx.request.body.credentials;
-    var namespacedGameID = getNamespacedGameID(roomID, gameName);
-    var gameMetadata = await db.get(GameMetadataKey(namespacedGameID));
+    var gameMetadata = await db.get(GameMetadataKey(gameID));
 
     if (typeof playerID === 'undefined') {
       ctx.throw(403, 'playerID is required');
     }
 
     if (!gameMetadata) {
-      ctx.throw(404, 'Game ' + roomID + ' not found');
+      ctx.throw(404, 'Game ' + gameID + ' not found');
     }
 
     if (!gameMetadata.players[playerID]) {
@@ -2277,23 +2235,21 @@ var addApiToServer = function addApiToServer(_ref2) {
     if (Object.values(gameMetadata.players).some(function (val) {
       return val.name;
     })) {
-      await db.set(GameMetadataKey(namespacedGameID), gameMetadata);
+      await db.set(GameMetadataKey(gameID), gameMetadata);
     } else {
       // remove room
-      await db.remove(roomID);
-      await db.remove(GameMetadataKey(namespacedGameID));
+      await db.remove(gameID);
+      await db.remove(GameMetadataKey(gameID));
     }
 
     ctx.body = {};
   });
-  router.post('/games/:name/:id/rename', koaBody(), async function (ctx) {
-    var gameName = ctx.params.name;
-    var roomID = ctx.params.id;
+  router.post('/games/:id/rename', koaBody(), async function (ctx) {
+    var gameID = ctx.params.id;
     var playerID = ctx.request.body.playerID;
     var credentials = ctx.request.body.credentials;
     var newName = ctx.request.body.newName;
-    var namespacedGameID = getNamespacedGameID(roomID, gameName);
-    var gameMetadata = await db.get(GameMetadataKey(namespacedGameID));
+    var gameMetadata = await db.get(GameMetadataKey(gameID));
 
     if (typeof playerID === 'undefined') {
       ctx.throw(403, 'playerID is required');
@@ -2304,7 +2260,7 @@ var addApiToServer = function addApiToServer(_ref2) {
     }
 
     if (!gameMetadata) {
-      ctx.throw(404, 'Game ' + roomID + ' not found');
+      ctx.throw(404, 'Game ' + gameID + ' not found');
     }
 
     if (!gameMetadata.players[playerID]) {
@@ -2316,7 +2272,7 @@ var addApiToServer = function addApiToServer(_ref2) {
     }
 
     gameMetadata.players[playerID].name = newName;
-    await db.set(GameMetadataKey(namespacedGameID), gameMetadata);
+    await db.set(GameMetadataKey(gameID), gameMetadata);
     ctx.body = {};
   });
   app.use(cors()); // If API_SECRET is set, then require that requests set an
