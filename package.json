@@ -20,6 +20,7 @@
     "test:integration": "bash ./scripts/integration.sh",
     "lint": "eslint .",
     "lint:fix": "eslint --fix .",
+    "prepare": "npm run build && generate-export-aliases",
     "prepack": "npm run build && generate-export-aliases",
     "postpack": "npm run clean",
     "prettier": "prettier --write \"{examples,src}/**/*.{js,css,md}\"",
