@@ -12,6 +12,11 @@ const koaBody = require('koa-body');
 const uuid = require('shortid').generate;
 const cors = require('@koa/cors');
 
+function sanitizeString(str) {
+  str = str.replace(/[^a-z0-9áéíóúñü \.,_-]/gim, '');
+  return str.trim();
+}
+
 import { InitializeGame } from '../core/reducer';
 
 const isGameMetadataKey = (key, gameName) =>
@@ -81,7 +86,7 @@ export const addApiToServer = ({ app, db, games, lobbyConfig }) => {
 
   router.post('/games/:name/create', koaBody(), async ctx => {
     // The name of the game (for example: tic-tac-toe).
-    const gameName = ctx.params.name;
+    const gameName = sanitizeString(ctx.params.name);
     // User-data to pass to the game setup function.
     const setupData = ctx.request.body.setupData;
     // The number of players for this game instance.
@@ -105,7 +110,7 @@ export const addApiToServer = ({ app, db, games, lobbyConfig }) => {
   });
 
   router.get('/games/:id', async ctx => {
-    const gameID = ctx.params.id;
+    const gameID = sanitizeString(ctx.params.id);
     const room = await db.get(GameMetadataKey(gameID));
     if (!room) {
       ctx.throw(404, 'Room ' + gameID + ' not found');
@@ -120,8 +125,8 @@ export const addApiToServer = ({ app, db, games, lobbyConfig }) => {
   });
 
   router.post('/games/:id/join', koaBody(), async ctx => {
-    const playerName = ctx.request.body.playerName;
-    const gameID = ctx.params.id;
+    const playerName = sanitizeString(ctx.request.body.playerName);
+    const gameID = sanitizeString(ctx.params.id);
     if (!playerName) {
       ctx.throw(403, 'playerName is required');
     }
@@ -173,9 +178,9 @@ export const addApiToServer = ({ app, db, games, lobbyConfig }) => {
   });
 
   router.post('/games/:id/leave', koaBody(), async ctx => {
-    const gameID = ctx.params.id;
-    const playerID = ctx.request.body.playerID;
-    const credentials = ctx.request.body.credentials;
+    const gameID = sanitizeString(ctx.params.id);
+    const playerID = sanitizeString(ctx.request.body.playerID);
+    const credentials = sanitizeString(ctx.request.body.credentials);
     const gameMetadata = await db.get(GameMetadataKey(gameID));
     if (typeof playerID === 'undefined') {
       ctx.throw(403, 'playerID is required');
@@ -203,10 +208,10 @@ export const addApiToServer = ({ app, db, games, lobbyConfig }) => {
   });
 
   router.post('/games/:id/rename', koaBody(), async ctx => {
-    const gameID = ctx.params.id;
-    const playerID = ctx.request.body.playerID;
-    const credentials = ctx.request.body.credentials;
-    const newName = ctx.request.body.newName;
+    const gameID = sanitizeString(ctx.params.id);
+    const playerID = sanitizeString(ctx.request.body.playerID);
+    const credentials = sanitizeString(ctx.request.body.credentials);
+    const newName = sanitizeString(ctx.request.body.newName);
     const gameMetadata = await db.get(GameMetadataKey(gameID));
     if (typeof playerID === 'undefined') {
       ctx.throw(403, 'playerID is required');
