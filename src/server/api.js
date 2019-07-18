@@ -38,6 +38,56 @@ const GameMetadataKey = gameID => `${gameID}:metadata`;
  *                             during game setup.
  * @param {object } lobbyConfig - Configuration options for the lobby.
  */
+const JoinGame = async (db, ctx, gameID, playerName) => {
+  // Gets credentials for a new player
+  const gameMetadata = await db.get(GameMetadataKey(gameID));
+
+  const players = gameMetadata.players;
+  if (!gameMetadata) {
+    ctx.throw(404, 'Game ' + gameID + ' not found');
+  }
+
+  // Find an empty slot and join it
+  var playerCredentials = undefined;
+  var playerID = undefined;
+
+  //debug code
+  console.log('Attempting to find slot for player');
+  console.log(players);
+
+  var playerID = undefined;
+  for (let i = 0; i < Object.keys(players).length; i++) {
+    console.log('Checking slot ' + i);
+    if (typeof players[i].name === 'undefined') {
+      //Join the game
+      playerID = i.toString();
+      players[i].name = playerName;
+      playerCredentials = players[i].credentials;
+      await db.set(GameMetadataKey(gameID), gameMetadata);
+      break;
+    }
+  }
+
+  // First player becomes host and gets admin powers
+  // (all player credentials)
+  var adminData = undefined;
+  if (playerID === '0') {
+    adminData = gameMetadata;
+  }
+
+  if (typeof playerCredentials === 'undefined') {
+    ctx.throw(409, 'Game is full!');
+  }
+
+  return {
+    gameID,
+    gameName: gameMetadata.gameName,
+    playerCredentials,
+    playerID,
+    adminData,
+  };
+};
+
 export const CreateGame = async (
   db,
   game,
@@ -85,6 +135,8 @@ export const addApiToServer = ({ app, db, games, lobbyConfig }) => {
   });
 
   router.post('/games/:name/create', koaBody(), async ctx => {
+    console.log('create version 2');
+    const playerName = sanitizeString(ctx.request.body.playerName);
     // The name of the game (for example: tic-tac-toe).
     const gameName = sanitizeString(ctx.params.name);
     // User-data to pass to the game setup function.
@@ -103,10 +155,8 @@ export const addApiToServer = ({ app, db, games, lobbyConfig }) => {
       setupData,
       lobbyConfig
     );
-
-    ctx.body = {
-      gameID,
-    };
+    const gameInfo = await JoinGame(db, ctx, gameID, playerName);
+    ctx.body = gameInfo;
   });
 
   router.get('/games/:id', async ctx => {
@@ -130,51 +180,9 @@ export const addApiToServer = ({ app, db, games, lobbyConfig }) => {
     if (!playerName) {
       ctx.throw(403, 'playerName is required');
     }
-    const gameMetadata = await db.get(GameMetadataKey(gameID));
 
-    const players = gameMetadata.players;
-    if (!gameMetadata) {
-      ctx.throw(404, 'Game ' + gameID + ' not found');
-    }
-
-    // Find an empty slot and join it
-    var playerCredentials = undefined;
-    var playerID = undefined;
-
-    //debug code
-    console.log('Attempting to find slot for player');
-    console.log(players);
-
-    var playerID = undefined;
-    for (let i = 0; i < Object.keys(players).length; i++) {
-      console.log('Checking slot ' + i);
-      if (typeof players[i].name === 'undefined') {
-        //Join the game
-        playerID = i.toString();
-        players[i].name = playerName;
-        playerCredentials = players[i].credentials;
-        await db.set(GameMetadataKey(gameID), gameMetadata);
-        break;
-      }
-    }
-
-    // First player becomes host and gets admin powers
-    // (all player credentials)
-    var adminData = undefined;
-    if (playerID === '0') {
-      adminData = gameMetadata;
-    }
-
-    if (typeof playerCredentials === 'undefined') {
-      ctx.throw(409, 'Game is full!');
-    }
-
-    ctx.body = {
-      gameName: gameMetadata.gameName,
-      playerCredentials,
-      playerID,
-      adminData,
-    };
+    const gameInfo = await JoinGame(db, ctx, gameID, playerName);
+    ctx.body = gameInfo;
   });
 
   router.post('/games/:id/leave', koaBody(), async ctx => {
