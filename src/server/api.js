@@ -13,7 +13,7 @@ const uuid = require('shortid').generate;
 const cors = require('@koa/cors');
 
 function sanitizeString(str) {
-  str = str.replace(/[^a-z0-9áéíóúñü \.,_-]/gim, '');
+  str = str.replace(/[^a-z0-9áéíóúñü .,_-]/gim, '');
   return str.trim();
 }
 
@@ -55,7 +55,6 @@ const JoinGame = async (db, ctx, gameID, playerName) => {
   console.log('Attempting to find slot for player');
   console.log(players);
 
-  var playerID = undefined;
   for (let i = 0; i < Object.keys(players).length; i++) {
     console.log('Checking slot ' + i);
     if (typeof players[i].name === 'undefined') {
