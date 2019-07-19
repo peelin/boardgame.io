@@ -2037,6 +2037,11 @@ var uuid = require('shortid').generate;
 
 var cors = require('@koa/cors');
 
+function sanitizeString(str) {
+  str = str.replace(/[^a-z0-9áéíóúñü .,_-]/gim, '');
+  return str.trim();
+}
+
 var createGameMetadata = function createGameMetadata(gameName) {
   return {
     players: {},
@@ -2058,6 +2063,56 @@ var GameMetadataKey = function GameMetadataKey(gameID) {
  * @param {object } lobbyConfig - Configuration options for the lobby.
  */
 
+
+var JoinGame = async function JoinGame(db, ctx, gameID, playerName) {
+  // Gets credentials for a new player
+  var gameMetadata = await db.get(GameMetadataKey(gameID));
+  var players = gameMetadata.players;
+
+  if (!gameMetadata) {
+    ctx.throw(404, 'Game ' + gameID + ' not found');
+  } // Find an empty slot and join it
+
+
+  var credentials = undefined;
+  var playerID = undefined; //debug code
+
+  console.log('Attempting to find slot for player');
+  console.log(players);
+
+  for (var i = 0; i < Object.keys(players).length; i++) {
+    console.log('Checking slot ' + i);
+
+    if (typeof players[i].name === 'undefined') {
+      //Join the game
+      playerID = i.toString();
+      players[i].name = playerName;
+      credentials = players[i].credentials;
+      await db.set(GameMetadataKey(gameID), gameMetadata);
+      break;
+    }
+  } // First player becomes host and gets admin powers
+  // (all player credentials)
+
+
+  var adminData = undefined;
+
+  if (playerID === '0') {
+    adminData = gameMetadata;
+  }
+
+  if (typeof credentials === 'undefined') {
+    ctx.throw(409, 'Game is full!');
+  }
+
+  return {
+    gameID: gameID,
+    gameName: gameMetadata.gameName,
+    credentials: credentials,
+    playerID: playerID,
+    adminData: adminData
+  };
+};
 
 var CreateGame = async function CreateGame(db, game, numPlayers, setupData, lobbyConfig) {
   var gameMetadata = createGameMetadata(game.name);
@@ -2115,8 +2170,10 @@ var addApiToServer = function addApiToServer(_ref2) {
     });
   });
   router.post('/games/:name/create', koaBody(), async function (ctx) {
-    // The name of the game (for example: tic-tac-toe).
-    var gameName = ctx.params.name; // User-data to pass to the game setup function.
+    console.log('create version 2');
+    var playerName = sanitizeString(ctx.request.body.playerName); // The name of the game (for example: tic-tac-toe).
+
+    var gameName = sanitizeString(ctx.params.name); // User-data to pass to the game setup function.
 
     var setupData = ctx.request.body.setupData; // The number of players for this game instance.
 
@@ -2130,12 +2187,11 @@ var addApiToServer = function addApiToServer(_ref2) {
       return g.name === gameName;
     });
     var gameID = await CreateGame(db, game, numPlayers, setupData, lobbyConfig);
-    ctx.body = {
-      gameID: gameID
-    };
+    var gameInfo = await JoinGame(db, ctx, gameID, playerName);
+    ctx.body = gameInfo;
   });
   router.get('/games/:id', async function (ctx) {
-    var gameID = ctx.params.id;
+    var gameID = sanitizeString(ctx.params.id);
     var room = await db.get(GameMetadataKey(gameID));
 
     if (!room) {
@@ -2154,64 +2210,20 @@ var addApiToServer = function addApiToServer(_ref2) {
     ctx.body = strippedRoom;
   });
   router.post('/games/:id/join', koaBody(), async function (ctx) {
-    var playerName = ctx.request.body.playerName;
-    var gameID = ctx.params.id;
+    var playerName = sanitizeString(ctx.request.body.playerName);
+    var gameID = sanitizeString(ctx.params.id);
 
     if (!playerName) {
       ctx.throw(403, 'playerName is required');
     }
 
-    var gameMetadata = await db.get(GameMetadataKey(gameID));
-    var players = gameMetadata.players;
-
-    if (!gameMetadata) {
-      ctx.throw(404, 'Game ' + gameID + ' not found');
-    } // Find an empty slot and join it
-
-
-    var playerCredentials = undefined;
-    var playerID = undefined; //debug code
-
-    console.log('Attempting to find slot for player');
-    console.log(players);
-    var playerID = undefined;
-
-    for (var i = 0; i < Object.keys(players).length; i++) {
-      console.log('Checking slot ' + i);
-
-      if (typeof players[i].name === 'undefined') {
-        //Join the game
-        playerID = i.toString();
-        players[i].name = playerName;
-        playerCredentials = players[i].credentials;
-        await db.set(GameMetadataKey(gameID), gameMetadata);
-        break;
-      }
-    } // First player becomes host and gets admin powers
-    // (all player credentials)
-
-
-    var adminData = undefined;
-
-    if (playerID === '0') {
-      adminData = gameMetadata;
-    }
-
-    if (typeof playerCredentials === 'undefined') {
-      ctx.throw(409, 'Game is full!');
-    }
-
-    ctx.body = {
-      gameName: gameMetadata.gameName,
-      playerCredentials: playerCredentials,
-      playerID: playerID,
-      adminData: adminData
-    };
+    var gameInfo = await JoinGame(db, ctx, gameID, playerName);
+    ctx.body = gameInfo;
   });
   router.post('/games/:id/leave', koaBody(), async function (ctx) {
-    var gameID = ctx.params.id;
-    var playerID = ctx.request.body.playerID;
-    var credentials = ctx.request.body.credentials;
+    var gameID = sanitizeString(ctx.params.id);
+    var playerID = sanitizeString(ctx.request.body.playerID);
+    var credentials = sanitizeString(ctx.request.body.credentials);
     var gameMetadata = await db.get(GameMetadataKey(gameID));
 
     if (typeof playerID === 'undefined') {
@@ -2245,10 +2257,10 @@ var addApiToServer = function addApiToServer(_ref2) {
     ctx.body = {};
   });
   router.post('/games/:id/rename', koaBody(), async function (ctx) {
-    var gameID = ctx.params.id;
-    var playerID = ctx.request.body.playerID;
-    var credentials = ctx.request.body.credentials;
-    var newName = ctx.request.body.newName;
+    var gameID = sanitizeString(ctx.params.id);
+    var playerID = sanitizeString(ctx.request.body.playerID);
+    var credentials = sanitizeString(ctx.request.body.credentials);
+    var newName = sanitizeString(ctx.request.body.newName);
     var gameMetadata = await db.get(GameMetadataKey(gameID));
 
     if (typeof playerID === 'undefined') {

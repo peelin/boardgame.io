@@ -48,7 +48,7 @@ const JoinGame = async (db, ctx, gameID, playerName) => {
   }
 
   // Find an empty slot and join it
-  var playerCredentials = undefined;
+  var credentials = undefined;
   var playerID = undefined;
 
   //debug code
@@ -61,7 +61,7 @@ const JoinGame = async (db, ctx, gameID, playerName) => {
       //Join the game
       playerID = i.toString();
       players[i].name = playerName;
-      playerCredentials = players[i].credentials;
+      credentials = players[i].credentials;
       await db.set(GameMetadataKey(gameID), gameMetadata);
       break;
     }
@@ -74,14 +74,14 @@ const JoinGame = async (db, ctx, gameID, playerName) => {
     adminData = gameMetadata;
   }
 
-  if (typeof playerCredentials === 'undefined') {
+  if (typeof credentials === 'undefined') {
     ctx.throw(409, 'Game is full!');
   }
 
   return {
     gameID,
     gameName: gameMetadata.gameName,
-    playerCredentials,
+    credentials,
     playerID,
     adminData,
   };
