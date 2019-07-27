@@ -754,8 +754,6 @@ var defineProperty = function (obj, key, value) {
 
 var NOTHING = typeof Symbol !== "undefined" ? Symbol("immer-nothing") : defineProperty({}, "immer-nothing", true);
 
-var DRAFTABLE = typeof Symbol !== "undefined" ? Symbol("immer-draftable") : "__$immer_draftable";
-
 var DRAFT_STATE = typeof Symbol !== "undefined" ? Symbol("immer-state") : "__$immer_state";
 
 function isDraft(value) {
@@ -763,11 +761,11 @@ function isDraft(value) {
 }
 
 function isDraftable(value) {
-    if (!value || (typeof value === "undefined" ? "undefined" : _typeof$1(value)) !== "object") return false;
+    if (!value) return false;
+    if ((typeof value === "undefined" ? "undefined" : _typeof$1(value)) !== "object") return false;
     if (Array.isArray(value)) return true;
     var proto = Object.getPrototypeOf(value);
-    if (!proto || proto === Object.prototype) return true;
-    return !!value[DRAFTABLE] || !!value.constructor[DRAFTABLE];
+    return proto === null || proto === Object.prototype;
 }
 
 var assign = Object.assign || function assign(target, value) {
@@ -779,37 +777,10 @@ var assign = Object.assign || function assign(target, value) {
     return target;
 };
 
-var ownKeys = typeof Reflect !== "undefined" && Reflect.ownKeys ? Reflect.ownKeys : typeof Object.getOwnPropertySymbols !== "undefined" ? function (obj) {
-    return Object.getOwnPropertyNames(obj).concat(Object.getOwnPropertySymbols(obj));
-} : Object.getOwnPropertyNames;
-
-function shallowCopy(base) {
-    var invokeGetters = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : false;
-
-    if (Array.isArray(base)) return base.slice();
-    var clone = Object.create(Object.getPrototypeOf(base));
-    ownKeys(base).forEach(function (key) {
-        if (key === DRAFT_STATE) {
-            return; // Never copy over draft state.
-        }
-        var desc = Object.getOwnPropertyDescriptor(base, key);
-        if (desc.get) {
-            if (!invokeGetters) {
-                throw new Error("Immer drafts cannot have computed properties");
-            }
-            desc.value = desc.get.call(base);
-        }
-        if (desc.enumerable) {
-            clone[key] = desc.value;
-        } else {
-            Object.defineProperty(clone, key, {
-                value: desc.value,
-                writable: true,
-                configurable: true
-            });
-        }
-    });
-    return clone;
+function shallowCopy(value) {
+    if (Array.isArray(value)) return value.slice();
+    var target = value.__proto__ === undefined ? Object.create(null) : {};
+    return assign(target, value);
 }
 
 function each(value, cb) {
@@ -818,14 +789,10 @@ function each(value, cb) {
             cb(i, value[i], value);
         }
     } else {
-        ownKeys(value).forEach(function (key) {
-            return cb(key, value[key], value);
-        });
+        for (var key in value) {
+            cb(key, value[key], value);
+        }
     }
-}
-
-function isEnumerable(base, prop) {
-    return Object.getOwnPropertyDescriptor(base, prop).enumerable;
 }
 
 function has(thing, prop) {
@@ -839,6 +806,110 @@ function is(x, y) {
     } else {
         return x !== x && y !== y;
     }
+}
+
+function generatePatches(state, basePath, patches, inversePatches) {
+    Array.isArray(state.base) ? generateArrayPatches(state, basePath, patches, inversePatches) : generateObjectPatches(state, basePath, patches, inversePatches);
+}
+
+function generateArrayPatches(state, basePath, patches, inversePatches) {
+    var base = state.base,
+        copy = state.copy,
+        assigned = state.assigned;
+
+    var minLength = Math.min(base.length, copy.length);
+
+    // Look for replaced indices.
+    for (var i = 0; i < minLength; i++) {
+        if (assigned[i] && base[i] !== copy[i]) {
+            var path = basePath.concat(i);
+            patches.push({ op: "replace", path: path, value: copy[i] });
+            inversePatches.push({ op: "replace", path: path, value: base[i] });
+        }
+    }
+
+    // Did the array expand?
+    if (minLength < copy.length) {
+        for (var _i = minLength; _i < copy.length; _i++) {
+            patches.push({
+                op: "add",
+                path: basePath.concat(_i),
+                value: copy[_i]
+            });
+        }
+        inversePatches.push({
+            op: "replace",
+            path: basePath.concat("length"),
+            value: base.length
+        });
+    }
+
+    // ...or did it shrink?
+    else if (minLength < base.length) {
+            patches.push({
+                op: "replace",
+                path: basePath.concat("length"),
+                value: copy.length
+            });
+            for (var _i2 = minLength; _i2 < base.length; _i2++) {
+                inversePatches.push({
+                    op: "add",
+                    path: basePath.concat(_i2),
+                    value: base[_i2]
+                });
+            }
+        }
+}
+
+function generateObjectPatches(state, basePath, patches, inversePatches) {
+    var base = state.base,
+        copy = state.copy;
+
+    each(state.assigned, function (key, assignedValue) {
+        var origValue = base[key];
+        var value = copy[key];
+        var op = !assignedValue ? "remove" : key in base ? "replace" : "add";
+        if (origValue === base && op === "replace") return;
+        var path = basePath.concat(key);
+        patches.push(op === "remove" ? { op: op, path: path } : { op: op, path: path, value: value });
+        inversePatches.push(op === "add" ? { op: "remove", path: path } : op === "remove" ? { op: "add", path: path, value: origValue } : { op: "replace", path: path, value: origValue });
+    });
+}
+
+function applyPatches(draft, patches) {
+    for (var i = 0; i < patches.length; i++) {
+        var patch = patches[i];
+        var path = patch.path;
+
+        if (path.length === 0 && patch.op === "replace") {
+            draft = patch.value;
+        } else {
+            var base = draft;
+            for (var _i3 = 0; _i3 < path.length - 1; _i3++) {
+                base = base[path[_i3]];
+                if (!base || (typeof base === "undefined" ? "undefined" : _typeof$1(base)) !== "object") throw new Error("Cannot apply patch, path doesn't resolve: " + path.join("/")); // prettier-ignore
+            }
+            var key = path[path.length - 1];
+            switch (patch.op) {
+                case "replace":
+                case "add":
+                    // TODO: add support is not extensive, it does not support insertion or `-` atm!
+                    base[key] = patch.value;
+                    break;
+                case "remove":
+                    if (Array.isArray(base)) {
+                        if (key !== base.length - 1) throw new Error("Only the last index of an array can be removed, index: " + key + ", length: " + base.length); // prettier-ignore
+                        base.length -= 1;
+                    } else {
+                        delete base[key];
+                    }
+                    break;
+                default:
+                    throw new Error("Unsupported patch operation: " + patch.op);
+            }
+        }
+    }
+    return draft;
 }
 
 // @ts-check
@@ -864,10 +935,18 @@ function willFinalize(result, baseDraft, needPatches) {
 }
 
 function createDraft(base, parent) {
-    var isArray = Array.isArray(base);
-    var draft = clonePotentialDraft(base);
-    each(draft, function (prop) {
-        proxyProperty(draft, prop, isArray || isEnumerable(base, prop));
+    var draft = void 0;
+    if (isDraft(base)) {
+        var _state = base[DRAFT_STATE];
+        // Avoid creating new drafts when copying.
+        _state.finalizing = true;
+        draft = shallowCopy(_state.draft);
+        _state.finalizing = false;
+    } else {
+        draft = shallowCopy(base);
+    }
+    each(base, function (prop) {
+        Object.defineProperty(draft, "" + prop, createPropertyProxy("" + prop));
     });
 
     // See "proxy.js" for property documentation.
@@ -928,41 +1007,24 @@ function markChanged(state) {
 }
 
 function prepareCopy(state) {
-    if (!state.copy) state.copy = clonePotentialDraft(state.base);
+    if (!state.copy) state.copy = shallowCopy(state.base);
 }
 
-function clonePotentialDraft(base) {
-    var state = base && base[DRAFT_STATE];
-    if (state) {
-        state.finalizing = true;
-        var draft = shallowCopy(state.draft, true);
-        state.finalizing = false;
-        return draft;
-    }
-    return shallowCopy(base);
-}
-
-function proxyProperty(draft, prop, enumerable) {
-    var desc = descriptors[prop];
-    if (desc) {
-        desc.enumerable = enumerable;
-    } else {
-        descriptors[prop] = desc = {
-            configurable: true,
-            enumerable: enumerable,
-            get: function get$$1() {
-                return _get$1(this[DRAFT_STATE], prop);
-            },
-            set: function set$$1(value) {
-                _set$1(this[DRAFT_STATE], prop, value);
-            }
-        };
-    }
-    Object.defineProperty(draft, prop, desc);
+function createPropertyProxy(prop) {
+    return descriptors[prop] || (descriptors[prop] = {
+        configurable: true,
+        enumerable: true,
+        get: function get$$1() {
+            return _get$1(this[DRAFT_STATE], prop);
+        },
+        set: function set$$1(value) {
+            _set$1(this[DRAFT_STATE], prop, value);
+        }
+    });
 }
 
 function assertUnrevoked(state) {
-    if (state.revoked === true) throw new Error("Cannot use a proxy that has been revoked. Did you pass an object from inside an immer function to an async process? " + JSON.stringify(source(state)));
+    if (state.revoked === true) throw new Error("Cannot use a proxy that has been revoked. Did you pass an object from inside an immer function to an async process? " + JSON.stringify(state.copy || state.base));
 }
 
 // This looks expensive, but only proxies are visited, and only objects without known changes are scanned.
@@ -1134,21 +1196,16 @@ var objectTraps = {
     has: function has$$1(target, prop) {
         return prop in source$1(target);
     },
-    ownKeys: function ownKeys$$1(target) {
+    ownKeys: function ownKeys(target) {
         return Reflect.ownKeys(source$1(target));
     },
 
     set: set$1,
     deleteProperty: deleteProperty,
     getOwnPropertyDescriptor: getOwnPropertyDescriptor,
-    defineProperty: function defineProperty() {
-        throw new Error("Object.defineProperty() cannot be used on an Immer draft"); // prettier-ignore
-    },
-    getPrototypeOf: function getPrototypeOf(target) {
-        return Object.getPrototypeOf(target.base);
-    },
+    defineProperty: defineProperty$1,
     setPrototypeOf: function setPrototypeOf() {
-        throw new Error("Object.setPrototypeOf() cannot be used on an Immer draft"); // prettier-ignore
+        throw new Error("Immer does not support `setPrototypeOf()`.");
     }
 };
 
@@ -1160,15 +1217,11 @@ each(objectTraps, function (key, fn) {
     };
 });
 arrayTraps.deleteProperty = function (state, prop) {
-    if (isNaN(parseInt(prop))) {
-        throw new Error("Immer only supports deleting array indices"); // prettier-ignore
-    }
+    if (isNaN(parseInt(prop))) throw new Error("Immer does not support deleting properties from arrays: " + prop);
     return objectTraps.deleteProperty.call(this, state[0], prop);
 };
 arrayTraps.set = function (state, prop, value) {
-    if (prop !== "length" && isNaN(parseInt(prop))) {
-        throw new Error("Immer only supports setting array indices and the 'length' property"); // prettier-ignore
-    }
+    if (prop !== "length" && isNaN(parseInt(prop))) throw new Error("Immer does not support setting non-numeric properties on arrays: " + prop);
     return objectTraps.set.call(this, state[0], prop, value);
 };
 
@@ -1225,13 +1278,14 @@ function deleteProperty(state, prop) {
 }
 
 function getOwnPropertyDescriptor(state, prop) {
-    var owner = source$1(state);
-    var desc = Reflect.getOwnPropertyDescriptor(owner, prop);
-    if (desc) {
-        desc.writable = true;
-        desc.configurable = !Array.isArray(owner) || prop !== "length";
-    }
-    return desc;
+    var owner = state.modified ? state.copy : has(state.drafts, prop) ? state.drafts : state.base;
+    var descriptor = Reflect.getOwnPropertyDescriptor(owner, prop);
+    if (descriptor && !(Array.isArray(owner) && prop === "length")) descriptor.configurable = true;
+    return descriptor;
+}
+
+function defineProperty$1() {
+    throw new Error("Immer does not support defining properties on draft objects.");
 }
 
 function markChanged$1(state) {
@@ -1249,110 +1303,6 @@ var modernProxy = Object.freeze({
 	willFinalize: willFinalize$1,
 	createDraft: createDraft$1
 });
-
-function generatePatches(state, basePath, patches, inversePatches) {
-    Array.isArray(state.base) ? generateArrayPatches(state, basePath, patches, inversePatches) : generateObjectPatches(state, basePath, patches, inversePatches);
-}
-
-function generateArrayPatches(state, basePath, patches, inversePatches) {
-    var base = state.base,
-        copy = state.copy,
-        assigned = state.assigned;
-
-    var minLength = Math.min(base.length, copy.length);
-
-    // Look for replaced indices.
-    for (var i = 0; i < minLength; i++) {
-        if (assigned[i] && base[i] !== copy[i]) {
-            var path = basePath.concat(i);
-            patches.push({ op: "replace", path: path, value: copy[i] });
-            inversePatches.push({ op: "replace", path: path, value: base[i] });
-        }
-    }
-
-    // Did the array expand?
-    if (minLength < copy.length) {
-        for (var _i = minLength; _i < copy.length; _i++) {
-            patches.push({
-                op: "add",
-                path: basePath.concat(_i),
-                value: copy[_i]
-            });
-        }
-        inversePatches.push({
-            op: "replace",
-            path: basePath.concat("length"),
-            value: base.length
-        });
-    }
-
-    // ...or did it shrink?
-    else if (minLength < base.length) {
-            patches.push({
-                op: "replace",
-                path: basePath.concat("length"),
-                value: copy.length
-            });
-            for (var _i2 = minLength; _i2 < base.length; _i2++) {
-                inversePatches.push({
-                    op: "add",
-                    path: basePath.concat(_i2),
-                    value: base[_i2]
-                });
-            }
-        }
-}
-
-function generateObjectPatches(state, basePath, patches, inversePatches) {
-    var base = state.base,
-        copy = state.copy;
-
-    each(state.assigned, function (key, assignedValue) {
-        var origValue = base[key];
-        var value = copy[key];
-        var op = !assignedValue ? "remove" : key in base ? "replace" : "add";
-        if (origValue === value && op === "replace") return;
-        var path = basePath.concat(key);
-        patches.push(op === "remove" ? { op: op, path: path } : { op: op, path: path, value: value });
-        inversePatches.push(op === "add" ? { op: "remove", path: path } : op === "remove" ? { op: "add", path: path, value: origValue } : { op: "replace", path: path, value: origValue });
-    });
-}
-
-function applyPatches(draft, patches) {
-    for (var i = 0; i < patches.length; i++) {
-        var patch = patches[i];
-        var path = patch.path;
-
-        if (path.length === 0 && patch.op === "replace") {
-            draft = patch.value;
-        } else {
-            var base = draft;
-            for (var _i3 = 0; _i3 < path.length - 1; _i3++) {
-                base = base[path[_i3]];
-                if (!base || (typeof base === "undefined" ? "undefined" : _typeof$1(base)) !== "object") throw new Error("Cannot apply patch, path doesn't resolve: " + path.join("/")); // prettier-ignore
-            }
-            var key = path[path.length - 1];
-            switch (patch.op) {
-                case "replace":
-                case "add":
-                    // TODO: add support is not extensive, it does not support insertion or `-` atm!
-                    base[key] = patch.value;
-                    break;
-                case "remove":
-                    if (Array.isArray(base)) {
-                        if (key !== base.length - 1) throw new Error("Only the last index of an array can be removed, index: " + key + ", length: " + base.length); // prettier-ignore
-                        base.length -= 1;
-                    } else {
-                        delete base[key];
-                    }
-                    break;
-                default:
-                    throw new Error("Unsupported patch operation: " + patch.op);
-            }
-        }
-    }
-    return draft;
-}
 
 function verifyMinified() {}
 
@@ -1410,51 +1360,56 @@ var Immer = function () {
                 result = recipe(base);
                 if (result === undefined) return base;
             }
-            // The given value must be proxied.
-            else {
-                    this.scopes.push([]);
-                    var baseDraft = this.createDraft(base);
-                    try {
-                        result = recipe.call(baseDraft, baseDraft);
-                        this.willFinalize(result, baseDraft, !!patchListener);
-
-                        // Never generate patches when no listener exists.
-                        var patches = patchListener && [],
-                            inversePatches = patchListener && [];
-
-                        // Finalize the modified draft...
-                        if (result === undefined || result === baseDraft) {
-                            result = this.finalize(baseDraft, [], patches, inversePatches);
-                        }
-                        // ...or use a replacement value.
-                        else {
-                                // Users must never modify the draft _and_ return something else.
-                                if (baseDraft[DRAFT_STATE].modified) throw new Error("An immer producer returned a new value *and* modified its draft. Either return a new value *or* modify the draft."); // prettier-ignore
-
-                                // Finalize the replacement in case it contains (or is) a subset of the draft.
-                                if (isDraftable(result)) result = this.finalize(result);
-
-                                if (patchListener) {
-                                    patches.push({
-                                        op: "replace",
-                                        path: [],
-                                        value: result
-                                    });
-                                    inversePatches.push({
-                                        op: "replace",
-                                        path: [],
-                                        value: base
-                                    });
-                                }
-                            }
-                    } finally {
-                        this.currentScope().forEach(function (state) {
-                            return state.revoke();
-                        });
-                        this.scopes.pop();
-                    }
-                    patchListener && patchListener(patches, inversePatches);
+            // See #100, don't nest producers
+            else if (isDraft(base)) {
+                    result = recipe.call(base, base);
+                    if (result === undefined) return base;
                 }
+                // The given value must be proxied.
+                else {
+                        this.scopes.push([]);
+                        var baseDraft = this.createDraft(base);
+                        try {
+                            result = recipe.call(baseDraft, baseDraft);
+                            this.willFinalize(result, baseDraft, !!patchListener);
+
+                            // Never generate patches when no listener exists.
+                            var patches = patchListener && [],
+                                inversePatches = patchListener && [];
+
+                            // Finalize the modified draft...
+                            if (result === undefined || result === baseDraft) {
+                                result = this.finalize(baseDraft, [], patches, inversePatches);
+                            }
+                            // ...or use a replacement value.
+                            else {
+                                    // Users must never modify the draft _and_ return something else.
+                                    if (baseDraft[DRAFT_STATE].modified) throw new Error("An immer producer returned a new value *and* modified its draft. Either return a new value *or* modify the draft."); // prettier-ignore
+
+                                    // Finalize the replacement in case it contains (or is) a subset of the draft.
+                                    if (isDraftable(result)) result = this.finalize(result);
+
+                                    if (patchListener) {
+                                        patches.push({
+                                            op: "replace",
+                                            path: [],
+                                            value: result
+                                        });
+                                        inversePatches.push({
+                                            op: "replace",
+                                            path: [],
+                                            value: base
+                                        });
+                                    }
+                                }
+                        } finally {
+                            this.currentScope().forEach(function (state) {
+                                return state.revoke();
+                            });
+                            this.scopes.pop();
+                        }
+                        patchListener && patchListener(patches, inversePatches);
+                    }
             // Normalize the result.
             return result === NOTHING ? undefined : result;
         }
@@ -1469,18 +1424,6 @@ var Immer = function () {
             this.useProxies = value;
             assign(this, value ? modernProxy : legacyProxy);
         }
-    }, {
-        key: "applyPatches",
-        value: function applyPatches$$1(base, patches) {
-            // Mutate the base state when a draft is passed.
-            if (isDraft(base)) {
-                return applyPatches(base, patches);
-            }
-            // Otherwise, produce a copy of the base state.
-            return this.produce(base, function (draft) {
-                return applyPatches(draft, patches);
-            });
-        }
         /**
          * @internal
          * Finalize a draft, returning either the unmodified base state or a modified
@@ -1490,8 +1433,6 @@ var Immer = function () {
     }, {
         key: "finalize",
         value: function finalize(draft, path, patches, inversePatches) {
-            var _this2 = this;
-
             var state = draft[DRAFT_STATE];
             if (!state) {
                 if (Object.isFrozen(draft)) return draft;
@@ -1506,20 +1447,10 @@ var Immer = function () {
                 state.finalized = true;
                 this.finalizeTree(state.draft, path, patches, inversePatches);
                 if (this.onDelete) {
-                    // The `assigned` object is unreliable with ES5 drafts.
-                    if (this.useProxies) {
-                        var assigned = state.assigned;
+                    var assigned = state.assigned;
 
-                        for (var prop in assigned) {
-                            if (!assigned[prop]) this.onDelete(state, prop);
-                        }
-                    } else {
-                        var base = state.base,
-                            copy = state.copy;
-
-                        each(base, function (prop) {
-                            if (!has(copy, prop)) _this2.onDelete(state, prop);
-                        });
+                    for (var prop in assigned) {
+                        assigned[prop] || this.onDelete(state, prop);
                     }
                 }
                 if (this.onCopy) this.onCopy(state);
@@ -1542,42 +1473,26 @@ var Immer = function () {
     }, {
         key: "finalizeTree",
         value: function finalizeTree(root, path, patches, inversePatches) {
-            var _this3 = this;
+            var _this2 = this;
 
             var state = root[DRAFT_STATE];
             if (state) {
-                if (!this.useProxies) {
-                    state.finalizing = true;
-                    state.copy = shallowCopy(state.draft, true);
-                    state.finalizing = false;
-                }
-                root = state.copy;
+                root = this.useProxies ? state.copy : state.copy = shallowCopy(state.draft);
             }
 
             var onAssign = this.onAssign;
 
             var finalizeProperty = function finalizeProperty(prop, value, parent) {
-                if (value === parent) {
-                    throw Error("Immer forbids circular references");
-                }
-
-                // The only possible draft (in the scope of a `finalizeTree` call) is the `root` object.
+                // Only `root` can be a draft in here.
                 var inDraft = !!state && parent === root;
 
                 if (isDraft(value)) {
-                    value =
+                    // prettier-ignore
+                    parent[prop] = value =
                     // Patches are never generated for assigned properties.
-                    patches && inDraft && !state.assigned[prop] ? _this3.finalize(value, path.concat(prop), patches, inversePatches) // prettier-ignore
-                    : _this3.finalize(value);
+                    patches && inDraft && !state.assigned[prop] ? _this2.finalize(value, path.concat(prop), patches, inversePatches) : _this2.finalize(value);
 
-                    // Preserve non-enumerable properties.
-                    if (Array.isArray(parent) || isEnumerable(parent, prop)) {
-                        parent[prop] = value;
-                    } else {
-                        Object.defineProperty(parent, prop, { value: value });
-                    }
-
-                    // Unchanged drafts are never passed to the `onAssign` hook.
+                    // Unchanged drafts are ignored.
                     if (inDraft && value === state.base[prop]) return;
                 }
                 // Unchanged draft properties are ignored.
@@ -1623,27 +1538,13 @@ var immer = new Immer();
  * @returns {any} a new state, or the initial state if nothing was modified
  */
 var produce = immer.produce;
-/**
- * Pass true to automatically freeze all copies created by Immer.
- *
- * By default, auto-freezing is disabled in production.
- */
-var setAutoFreeze = immer.setAutoFreeze.bind(immer);
-
-/**
- * Pass true to use the ES2015 `Proxy` class when creating drafts, which is
- * always faster than using ES5 proxies.
- *
- * By default, feature detection is used, so calling this is rarely necessary.
- */
-var setUseProxies = immer.setUseProxies.bind(immer);
 
 /**
  * Apply an array of Immer patches to the first argument.
  *
  * This function is a producer, which means copy-on-write is in effect.
  */
-var applyPatches$1 = immer.applyPatches.bind(immer);
+var applyPatches$1 = produce(applyPatches);
 
 /*
  * Copyright 2018 The boardgame.io Authors
@@ -2137,7 +2038,7 @@ var uuid = require('shortid').generate;
 var cors = require('@koa/cors');
 
 function sanitizeString(str) {
-  str = str.replace(/[^a-z0-9áéíóúñü \.,_-]/gim, '');
+  str = str.replace(/[^a-z0-9áéíóúñü .,_-]/gim, '');
   return str.trim();
 }
 
@@ -2173,12 +2074,11 @@ var JoinGame = async function JoinGame(db, ctx, gameID, playerName) {
   } // Find an empty slot and join it
 
 
-  var playerCredentials = undefined;
+  var credentials = undefined;
   var playerID = undefined; //debug code
 
   console.log('Attempting to find slot for player');
   console.log(players);
-  var playerID = undefined;
 
   for (var i = 0; i < Object.keys(players).length; i++) {
     console.log('Checking slot ' + i);
@@ -2187,7 +2087,7 @@ var JoinGame = async function JoinGame(db, ctx, gameID, playerName) {
       //Join the game
       playerID = i.toString();
       players[i].name = playerName;
-      playerCredentials = players[i].credentials;
+      credentials = players[i].credentials;
       await db.set(GameMetadataKey(gameID), gameMetadata);
       break;
     }
@@ -2201,14 +2101,14 @@ var JoinGame = async function JoinGame(db, ctx, gameID, playerName) {
     adminData = gameMetadata;
   }
 
-  if (typeof playerCredentials === 'undefined') {
+  if (typeof credentials === 'undefined') {
     ctx.throw(409, 'Game is full!');
   }
 
   return {
     gameID: gameID,
     gameName: gameMetadata.gameName,
-    playerCredentials: playerCredentials,
+    credentials: credentials,
     playerID: playerID,
     adminData: adminData
   };
@@ -3163,7 +3063,7 @@ function createStore(reducer, preloadedState, enhancer) {
   var _ref2;
 
   if (typeof preloadedState === 'function' && typeof enhancer === 'function' || typeof enhancer === 'function' && typeof arguments[3] === 'function') {
-    throw new Error('It looks like you are passing several store enhancers to ' + 'createStore(). This is not supported. Instead, compose them ' + 'together to a single function.');
+    throw new Error('It looks like you are passing several store enhancers to ' + 'createStore(). This is not supported. Instead, compose them ' + 'together to a single function');
   }
 
   if (typeof preloadedState === 'function' && typeof enhancer === 'undefined') {
@@ -3188,13 +3088,6 @@ function createStore(reducer, preloadedState, enhancer) {
   var currentListeners = [];
   var nextListeners = currentListeners;
   var isDispatching = false;
-  /**
-   * This makes a shallow copy of currentListeners so we can use
-   * nextListeners as a temporary list while dispatching.
-   *
-   * This prevents any bugs around consumers calling
-   * subscribe/unsubscribe in the middle of a dispatch.
-   */
 
   function ensureCanMutateNextListeners() {
     if (nextListeners === currentListeners) {
@@ -3340,11 +3233,7 @@ function createStore(reducer, preloadedState, enhancer) {
       throw new Error('Expected the nextReducer to be a function.');
     }
 
-    currentReducer = nextReducer; // This action has a similiar effect to ActionTypes.INIT.
-    // Any reducers that existed in both the new and old rootReducer
-    // will receive the previous state. This effectively populates
-    // the new state tree with any relevant data from the old one.
-
+    currentReducer = nextReducer;
     dispatch({
       type: ActionTypes.REPLACE
     });

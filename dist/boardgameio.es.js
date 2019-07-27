@@ -4082,6 +4082,10 @@ function setActionPlayers(G, ctx, arg) {
     });
   }
 
+  if (arg instanceof Function) {
+    actionPlayers = arg(G, ctx);
+  }
+
   if (Array.isArray(arg)) {
     actionPlayers = arg;
   }
