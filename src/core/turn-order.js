@@ -63,6 +63,10 @@ function setActionPlayers(G, ctx, arg) {
     actionPlayers = [...ctx.playOrder].filter(nr => nr !== ctx.currentPlayer);
   }
 
+  if (arg instanceof Function) {
+    actionPlayers = arg(G, ctx);
+  }
+
   if (Array.isArray(arg)) {
     actionPlayers = arg;
   }
