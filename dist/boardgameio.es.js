@@ -4129,7 +4129,7 @@ function InitTurnOrderState(G, ctx, turnOrder) {
     ctx = setActionPlayers(G, ctx, turnOrder.actionPlayers);
   } else {
     ctx = _objectSpread({}, ctx, {
-      actionPlayers: [currentPlayer]
+      actionPlayers: ['0', currentPlayer]
     });
   }
 
@@ -4158,7 +4158,7 @@ function UpdateTurnOrderState(G, ctx, turnOrder, endTurnArg) {
     if (ctx.playOrder.includes(endTurnArg.next)) {
       playOrderPos = ctx.playOrder.indexOf(endTurnArg.next);
       currentPlayer = endTurnArg.next;
-      actionPlayers = [currentPlayer];
+      actionPlayers = ['0', currentPlayer];
     }
   } else {
     var t = turnOrder.next(G, ctx);
@@ -4170,7 +4170,7 @@ function UpdateTurnOrderState(G, ctx, turnOrder, endTurnArg) {
       currentPlayer = getCurrentPlayer(ctx.playOrder, playOrderPos);
 
       if (turnOrder.actionPlayers === undefined) {
-        actionPlayers = [currentPlayer];
+        actionPlayers = ['0', currentPlayer];
       }
     }
   }
