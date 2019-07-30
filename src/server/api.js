@@ -42,10 +42,12 @@ const JoinGame = async (db, ctx, gameID, playerName) => {
   // Gets credentials for a new player
   const gameMetadata = await db.get(GameMetadataKey(gameID));
 
-  const players = gameMetadata.players;
   if (!gameMetadata) {
     ctx.throw(404, 'Game ' + gameID + ' not found');
   }
+
+  const players = gameMetadata.players;
+
 
   // Find an empty slot and join it
   var credentials = undefined;
