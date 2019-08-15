@@ -2067,12 +2067,12 @@ var GameMetadataKey = function GameMetadataKey(gameID) {
 var JoinGame = async function JoinGame(db, ctx, gameID, playerName) {
   // Gets credentials for a new player
   var gameMetadata = await db.get(GameMetadataKey(gameID));
-  var players = gameMetadata.players;
 
   if (!gameMetadata) {
     ctx.throw(404, 'Game ' + gameID + ' not found');
-  } // Find an empty slot and join it
+  }
 
+  var players = gameMetadata.players; // Find an empty slot and join it
 
   var credentials = undefined;
   var playerID = undefined; //debug code
@@ -3578,12 +3578,23 @@ function () {
     key: "onSync",
     value: async function onSync(gameID, playerID, numPlayers) {
       var key = gameID;
-      var state;
+      var state, gameMetadata, filteredGameMetadata;
 
       if (this.executeSynchronously) {
         state = this.storageAPI.get(key);
+        gameMetadata = this.storageAPI.get(GameMetadataKey$1(gameID));
       } else {
         state = await this.storageAPI.get(key);
+        gameMetadata = await this.storageAPI.get(GameMetadataKey$1(gameID));
+      }
+
+      if (gameMetadata) {
+        filteredGameMetadata = Object.values(gameMetadata.players).map(function (player) {
+          return {
+            id: player.id,
+            name: player.name
+          };
+        });
       } // If the game doesn't exist, then create one on demand.
       // TODO: Move this out of the sync call.
 
@@ -3622,7 +3633,7 @@ function () {
       this.transportAPI.send({
         playerID: playerID,
         type: 'sync',
-        args: [gameID, filteredState, log]
+        args: [gameID, filteredState, log, filteredGameMetadata]
       });
       return;
     }

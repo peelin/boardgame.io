@@ -393,6 +393,8 @@
       this.isConnected = false;
 
       this.callback = function () {};
+
+      this.gameMetadataCallback = function () {};
     }
     /**
      * Called when an action that has to be relayed to the
@@ -447,11 +449,13 @@
         }); // Called when the client first connects to the master
         // and requests the current game state.
 
-        this.socket.on('sync', function (gameID, state, log) {
+        this.socket.on('sync', function (gameID, state, log, gameMetadata) {
           if (gameID == _this.gameID) {
             var action = sync(state, log);
 
             _this.store.dispatch(action);
+
+            _this.gameMetadataCallback(gameMetadata);
           }
         }); // Initial sync to get game state.
 
@@ -476,6 +480,11 @@
       key: "subscribe",
       value: function subscribe(fn) {
         this.callback = fn;
+      }
+    }, {
+      key: "subscribeGameMetadata",
+      value: function subscribeGameMetadata(fn) {
+        this.gameMetadataCallback = fn;
       }
       /**
        * Updates the game id.
@@ -1757,12 +1766,23 @@
       key: "onSync",
       value: async function onSync(gameID, playerID, numPlayers) {
         var key = gameID;
-        var state;
+        var state, gameMetadata, filteredGameMetadata;
 
         if (this.executeSynchronously) {
           state = this.storageAPI.get(key);
+          gameMetadata = this.storageAPI.get(GameMetadataKey(gameID));
         } else {
           state = await this.storageAPI.get(key);
+          gameMetadata = await this.storageAPI.get(GameMetadataKey(gameID));
+        }
+
+        if (gameMetadata) {
+          filteredGameMetadata = Object.values(gameMetadata.players).map(function (player) {
+            return {
+              id: player.id,
+              name: player.name
+            };
+          });
         } // If the game doesn't exist, then create one on demand.
         // TODO: Move this out of the sync call.
 
@@ -1801,7 +1821,7 @@
         this.transportAPI.send({
           playerID: playerID,
           type: 'sync',
-          args: [gameID, filteredState, log]
+          args: [gameID, filteredState, log, filteredGameMetadata]
         });
         return;
       }
@@ -1965,6 +1985,10 @@
     }, {
       key: "subscribe",
       value: function subscribe() {}
+    }, {
+      key: "subscribeGameMetadata",
+      value: function subscribeGameMetadata(_metadata) {} // eslint-disable-line no-unused-vars
+
       /**
        * Updates the game id.
        * @param {string} id - The new game id.
@@ -2242,6 +2266,8 @@
         isConnected: true,
         onAction: function onAction() {},
         subscribe: function subscribe() {},
+        subscribeGameMetadata: function subscribeGameMetadata(_metadata) {},
+        // eslint-disable-line no-unused-vars
         connect: function connect() {},
         updateGameID: function updateGameID() {},
         updatePlayerID: function updatePlayerID() {}
@@ -2291,6 +2317,9 @@
       }
 
       this.createDispatchers();
+      this.transport.subscribeGameMetadata(function (metadata) {
+        _this.gameMetadata = metadata;
+      });
     }
 
     _createClass(_ClientImpl, [{
@@ -2516,7 +2545,8 @@
               step: this.client.step,
               reset: this.client.reset,
               undo: this.client.undo,
-              redo: this.client.redo
+              redo: this.client.redo,
+              gameMetadata: this.client.gameMetadata
             }));
           }
 
