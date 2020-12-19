@@ -105,7 +105,7 @@ export function InitTurnOrderState(G, ctx, turnOrder) {
   if (turnOrder.actionPlayers !== undefined) {
     ctx = setActionPlayers(G, ctx, turnOrder.actionPlayers);
   } else {
-    ctx = { ...ctx, actionPlayers: ['0', currentPlayer] };
+    ctx = { ...ctx, actionPlayers: [ currentPlayer] };
   }
 
   return { ...ctx, currentPlayer, playOrderPos, playOrder };
@@ -129,7 +129,7 @@ export function UpdateTurnOrderState(G, ctx, turnOrder, endTurnArg) {
     if (ctx.playOrder.includes(endTurnArg.next)) {
       playOrderPos = ctx.playOrder.indexOf(endTurnArg.next);
       currentPlayer = endTurnArg.next;
-      actionPlayers = ['0', currentPlayer];
+      actionPlayers = [ currentPlayer];
     } else {
       logging.error(`invalid argument to endTurn: ${endTurnArg}`);
     }
@@ -143,7 +143,7 @@ export function UpdateTurnOrderState(G, ctx, turnOrder, endTurnArg) {
       currentPlayer = getCurrentPlayer(ctx.playOrder, playOrderPos);
 
       if (turnOrder.actionPlayers === undefined) {
-        actionPlayers = ['0', currentPlayer];
+        actionPlayers = [currentPlayer];
       }
     }
   }
